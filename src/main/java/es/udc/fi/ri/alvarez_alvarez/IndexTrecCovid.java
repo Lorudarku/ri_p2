@@ -4,19 +4,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.document.*;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.StringField;
+import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.store.*;
-import org.apache.lucene.util.*;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 
 
 public class IndexTrecCovid {
@@ -108,7 +109,7 @@ public class IndexTrecCovid {
 
             // Parseamos e indexamos el documento
             Path path = Paths.get(docsPath);
-            parseDocument(path, writer);
+            processDocument(path, writer);
 
 
             writer.close();
@@ -119,13 +120,16 @@ public class IndexTrecCovid {
 
     }
 
-    private static void parseDocument(Path path, IndexWriter indexWriter) throws IOException{
-
-        try{
+    private static void processDocument(Path path, IndexWriter indexWriter) throws IOException{
+        System.out.println("Processing documents from file: " + path.toString());
+        try{ //Procesar los archivos .jsonl
+            while (Files.isDirectory(path)){
+                path = Files.list(path).findFirst().get();
+            }
             InputStream stream = Files.newInputStream(path);
             BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
             String line;
-
+            System.out.println("Parsing and indexing documents...");
             while ((line  = reader.readLine()) != null){
                 indexDocument(indexWriter, line);
             }
@@ -146,19 +150,32 @@ public class IndexTrecCovid {
 
             JsonNode document = objectMapper.readTree(content);
 
+            //System.out.println(document);
             // Extraer los campos requeridos (id, title, text, url, pubmed_id)
-            String id = document.get("id").asText();
+            String id = document.get("_id").asText();
             String title = document.get("title").asText();
             String text = document.get("text").asText();
-            String url = document.get("url").asText();
-            String pubmedId = document.get("pubmed_id").asText();
+            JsonNode metadata = document.get("metadata");
+            String url = metadata.get("url").asText();
+            String pubmedId = metadata.get("pubmed_id").asText();
 
-            System.out.println("ID: " + id);
-            System.out.println("Title: " + title);
-            System.out.println("Text: " + text);
-            System.out.println("URL: " + url);
-            System.out.println("PubMed ID: " + pubmedId);
-            System.out.println();
+//            System.out.println("ID: " + id);
+//            System.out.println("Title: " + title);
+//            System.out.println("Text: " + text);
+//            System.out.println("URL: " + url);
+//            System.out.println("PubMed ID: " + pubmedId);
+//            System.out.println();
+
+            // Crear un nuevo documento de Lucene
+            Document luceneDocument = new Document();
+            luceneDocument.add(new StringField("id", id, Field.Store.YES));
+            luceneDocument.add(new TextField("title", title, Field.Store.YES));
+            luceneDocument.add(new TextField("text", text, Field.Store.YES));
+            luceneDocument.add(new StringField("url", url, Field.Store.YES));
+            luceneDocument.add(new StringField("pubmed_id", pubmedId, Field.Store.YES));
+
+            // Indexar el documento
+            indexWriter.addDocument(luceneDocument);
 
         } catch (IOException e){
             throw e;
