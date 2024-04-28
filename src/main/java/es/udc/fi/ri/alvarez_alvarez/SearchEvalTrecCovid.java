@@ -1,4 +1,6 @@
+/*
 package es.udc.fi.ri.alvarez_alvarez;
+
 
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
@@ -38,3 +40,4 @@ public class SearchEvalTrecCovid {
         reader.close();
     }
 }
+*/

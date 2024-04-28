@@ -1,7 +1,8 @@
+/*
 package es.udc.fi.ri.alvarez_alvarez;
 
-import org.apache.commons.math3.stat.inference.TTest;
-import org.apache.commons.math3.stat.inference.WilcoxonSignedRankTest;
+//import org.apache.commons.math3.stat.inference.TTest;
+//import org.apache.commons.math3.stat.inference.WilcoxonSignedRankTest;
 import java.io.BufferedReader;
 import java.io.FileReader;
 
@@ -41,3 +42,4 @@ public class Compare {
         return new double[0];
     }
 }
+*/

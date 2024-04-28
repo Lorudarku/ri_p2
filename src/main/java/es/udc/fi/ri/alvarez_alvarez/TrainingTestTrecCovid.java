@@ -1,3 +1,4 @@
+/*
 package es.udc.fi.ri.alvarez_alvarez;
 
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -32,3 +33,4 @@ public class TrainingTestTrecCovid {
         reader.close();
     }
 }
+*/
