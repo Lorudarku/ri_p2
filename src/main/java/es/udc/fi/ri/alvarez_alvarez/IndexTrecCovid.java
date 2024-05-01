@@ -123,9 +123,10 @@ public class IndexTrecCovid {
     private static void processDocument(Path path, IndexWriter indexWriter) throws IOException{
         System.out.println("Processing documents from file: " + path.toString());
         try{ //Procesar los archivos .jsonl
-            while (Files.isDirectory(path)){
-                path = Files.list(path).findFirst().get();
-            }
+//            while (Files.isDirectory(path)){
+//                path = Files.list(path).findFirst().get();
+//            }
+            path = Path.of(path + "/corpus.jsonl");
             InputStream stream = Files.newInputStream(path);
             BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
             String line;
