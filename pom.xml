@@ -70,6 +70,12 @@
         <artifactId>lucene-demo</artifactId>
         <version>9.8.0</version>
     </dependency>
+
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-math3</artifactId>
+      <version>3.6</version>
+    </dependency>
   </dependencies>
 
     <dependencyManagement>

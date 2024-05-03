@@ -7,13 +7,11 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
-import org.apache.lucene.util.Version;
 import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import java.io.*;
@@ -41,6 +39,13 @@ public class SearchEvalTrecCovid {
     private static String trecCovidPath = "src/test/resources/trec-covid";
 
     private static String relevantDocsPath = "src/test/resources/trec-covid/qrels/test.tsv";
+
+    //Metricas globales
+    private static double promPAtN = 0.0;
+    private static double promRecallAtN = 0.0;
+    private static double mrr = 0.0;
+    private static double mapAtN = 0.0;
+    private static int numQueries = 0; //Solo las queries con documentos relevantes
     public static void main(String[] args) throws Exception {
         if (args.length < 7) {
             System.err.println("Usage: SearchEvalTrecCovid -search <model> <param> -index <ruta> -cut <n> -top <m> -queries <range>");
@@ -101,20 +106,52 @@ public class SearchEvalTrecCovid {
                 searcher.setSimilarity(new BM25Similarity(k1, b));
             }
 
-            // Search and evaluation logic here
-            Path qrelsPath = Path.of((trecCovidPath + "/qrels/test.tsv")); //Documento con juicios de relevancia
+            // Ruta del archivo con las queries
             Path queryPath = Path.of((trecCovidPath + "/queries.jsonl")); //Documento con queries
 
             //Creamos un diccionario con clave el id de la query y valor la query
-            HashMap<String, String> queriesDict = getQueries(queryPath, reader);
+            HashMap<String, String> queriesDict = getQueries(queryPath);
+
+            // Escribir top m documentos en archivo .txt
+            String fileNameTxt = searchEvalPath + "TREC-COVID." + searchModel + "." + top + ".hits." + (searchModel.equals("jm") ? "lambda" : "k1") + "." + param + ".q" + queryRange + ".txt";
+            //Creamos un writer para escribir los resultados en un archivo
+            PrintWriter writerTxt = new PrintWriter(fileNameTxt);
+            //Escribir cut n en archivo .cvs
+            String fileNameCsv = searchEvalPath + "TREC-COVID." + searchModel + "." + cut + ".cut." + (searchModel.equals("jm") ? "lambda" : "k1") + "." + param + ".q" + queryRange + ".csv";
+            PrintWriter writerCsv = new PrintWriter(fileNameCsv);
+
+            //Cabeceras del archivo .csv
+            writerCsv.println("Query ID ||| P@" + cut + " ||| Recall@" + cut + " ||| RR ||| MAP@" + cut);
 
             //Procesamos todas las queries del diccionario
             for (Map.Entry<String, String> entry : queriesDict.entrySet()) {
                 String id = entry.getKey();
                 String query = entry.getValue();
-                processQuery(searcher, id, query);
+                processQuery(searcher, id, query, writerTxt, writerCsv);
             }
 
+            //Calcular las métricas globales
+            promPAtN = promPAtN / numQueries;
+            promRecallAtN = promRecallAtN / numQueries;
+            mrr = mrr / numQueries;
+            mapAtN = mapAtN / numQueries;
+
+            //Imprimir las métricas globales
+            writerTxt.println("/////////////////////////////////////////////////////////////////////////////////////////");
+            writerTxt.println("/////////////////////////////////////////////////////////////////////////////////////////");
+            writerTxt.println("--Global Metrics--");
+            writerTxt.println("                  P@" + cut + ": " + promPAtN);
+            writerTxt.println("                  Recall@" + cut + ": " + promRecallAtN);
+            writerTxt.println("                  MRR: " + mrr);
+            writerTxt.println("                  MAP@" + cut + ": " + mapAtN);
+            writerTxt.println("/////////////////////////////////////////////////////////////////////////////////////////");
+            writerTxt.println("/////////////////////////////////////////////////////////////////////////////////////////");
+
+            System.out.println("Search Evaluation finished successfully");
+
+            //Esperamos a que se cierre el writer
+            writerTxt.close();
+            writerCsv.close();
             //Cerramos el reader
             reader.close();
         } catch (IOException e) {
@@ -123,7 +160,7 @@ public class SearchEvalTrecCovid {
     }
 
     //Procesar la query y escribir los resultados en un archivo
-    private static void processQuery(IndexSearcher searcher, String id, String query) throws ParseException, IOException {
+    private static void processQuery(IndexSearcher searcher, String id, String query, PrintWriter writerTxt, PrintWriter writerCsv) throws ParseException, IOException {
         // Ejecutar la búsqueda
         Query q = new QueryParser("text", new StandardAnalyzer()).parse(query);
         TopDocs results = searcher.search(q, Integer.parseInt(top));
@@ -135,28 +172,41 @@ public class SearchEvalTrecCovid {
         //Extraemos los documentos recuperados por la búsqueda
         List<String> retrievedDocs = getRetrievedDocsForQuery(searcher, scoreHits, relevantDocs);
 
-        //Imprimimos relevantDocs y retrievedDocs
-        System.out.println("/////////////////////////////////////////////////////////////////////////////////////////");
-        System.out.println("Query ID: " + id);
-        System.out.println("Relevant Docs: " + relevantDocs);
-        System.out.println("Num Relevant Docs: " + relevantDocs.size());
-        System.out.println("Retrieved Docs: " + retrievedDocs);
-        System.out.println("Num Retrieved Docs: " + retrievedDocs.size());
-
-        //Calcular las métricas de evaluación
-        evaluateMetrics(relevantDocs, retrievedDocs);
-
-        // Escribir resultados en archivo
-        String fileName = searchEvalPath + "TREC-COVID." + searchModel + "." + top + ".hits." + (searchModel.equals("jm") ? "lambda" : "k1") + "." + param + ".q" + queryRange + ".txt";
-        try (PrintWriter writer = new PrintWriter(fileName)) {
-            for (int i = 0; i < scoreHits.length; i++) {
-                int docId = scoreHits[i].doc;
-                Document doc = searcher.doc(docId);
-                writer.println("Document " + (i + 1) + ": " + doc.get("title") + " | Score: " + scoreHits[i].score);
-            }
-        } catch (FileNotFoundException e) {
-            System.err.println("Error writing to file '" + fileName + "'");
+        //Solo incrementamos el número de queries si hay documentos recuperados
+        if (!retrievedDocs.isEmpty()) {
+            numQueries++;
+        } else { //Si no hay documentos relevantes recuperados, no se calculan las métricas
+            return;
         }
+
+        //Imprimir los resultados en un archivo .csv
+        //#############################################################################################################################################################################################################################################################################################
+        writerCsv.print(id + " ||| ");
+
+        //Imprimir los resultados en un archivo .txt
+        writerTxt.println("///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////");
+        writerTxt.println("Query ID: " + id);
+        writerTxt.println("Query: " + query);
+        writerTxt.println("Relevant Docs: " + relevantDocs);
+        writerTxt.println("Num Relevant Docs: " + relevantDocs.size());
+        writerTxt.println("Retrieved Docs: " + retrievedDocs);
+        writerTxt.println("Num Retrieved Docs: " + retrievedDocs.size());
+        writerTxt.println("--------------------------------------------------- Top " + top + " retrieved documents for query " + id + ": ---------------------------------------------------");
+        for (int i = 0; i < scoreHits.length; i++) {
+            int docId = scoreHits[i].doc;
+            Document doc = searcher.doc(docId);
+            // Para cada documento, se visualizan todos los campos del índice (id, title, text, url, pubmed_id), el score y una marca que diga si es relevante o no
+            if (relevantDocs.contains(doc.get("id"))) {
+                String lineaAPrintear = "Document " + (i + 1) + " ||| id: " + doc.get("id") + " ||| title: " + doc.get("title") + " ||| text: " + doc.get("text") + " ||| url: " + doc.get("url") + " ||| pubmed_id: " + doc.get("pubmed_id") + " ||| Score: " + scoreHits[i].score + " ||| Relevant";
+                writerTxt.println(lineaAPrintear);
+            } else {
+                String lineaAPrintear = "Document " + (i + 1) + " ||| id: " + doc.get("id") + " ||| title: " + doc.get("title") + " ||| text: " + doc.get("text") + " ||| url: " + doc.get("url") + " ||| pubmed_id: " + doc.get("pubmed_id") + " ||| Score: " + scoreHits[i].score + " ||| Not Relevant";
+                writerTxt.println(lineaAPrintear);
+            }
+        }
+        writerTxt.println("--------------------------------------------------- Metrics for query " + id + ": -------------------------------------------------------------------------------");
+        evaluateMetrics(relevantDocs, retrievedDocs, writerTxt, writerCsv);
+        writerTxt.println("///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////");
     }
 
     //Extraer los documentos recuperados por la búsqueda
@@ -197,14 +247,11 @@ public class SearchEvalTrecCovid {
     }
 
     //Calcula las métricas de evaluación
-    private static void evaluateMetrics(List<String> relevantDocs, List<String> retrievedDocs) throws IOException {
-        //Los juicios de relevancia consideran documentos relevantes (2), parcialmente relevantes
-        //(1) y juzgados no relevantes (0). A efectos de relevancia binaria, 1 y 2 se consideran relevantes, 0 y
-        //no juzgados como no relevantes
-
-
+    private static void evaluateMetrics(List<String> relevantDocs, List<String> retrievedDocs, PrintWriter writerTxt, PrintWriter writerCsv) throws IOException {
         // Supongamos que n es el valor de corte para P@n, Recall@n y AP@n
         int n = Integer.parseInt(cut); // El valor de n para P@n, Recall@n y AP@n
+
+        //////////////////////////////////////////////// MÉTRICAS QUERYS INDIVIDUALES
 
         // P@n = (Número de documentos relevantes en los primeros n documentos recuperados) / n
         int relevantCount = 0;
@@ -227,29 +274,41 @@ public class SearchEvalTrecCovid {
             }
         }
 
-        // AP@n
+        // AP@n = (Sumatoria de los valores de Precisión en los cortes k donde el k-ésimo documento es relevante) / (Número total de documentos relevantes)
         double sumPrecisions = 0.0;
         relevantCount = 0;
-        for (int i = 0; i < n && i < retrievedDocs.size(); i++) {
-            if (relevantDocs.contains(retrievedDocs.get(i))) {
+        for (int i = 0; i < n && i < retrievedDocs.size(); i++) { // Iterar sobre los primeros n documentos recuperados
+            if (relevantDocs.contains(retrievedDocs.get(i))) { // Si el documento es relevante
                 relevantCount++;
                 sumPrecisions += (double) relevantCount / (i + 1);
             }
         }
         double apAtN = sumPrecisions / relevantDocs.size();
 
+        //#############################################################################################################################################################################################################################################################################################
+        //Imprimir las métricas en el archivo .csv
+        writerCsv.print(pAtN + " ||| ");
+        writerCsv.print(recallAtN + " ||| ");
+        writerCsv.print(rr + " ||| ");
+        writerCsv.println(apAtN);
+
         // Imprimir las métricas
-        System.out.println("P@" + n + ": " + pAtN);
-        System.out.println("Recall@" + n + ": " + recallAtN);
-        System.out.println("RR: " + rr);
-        System.out.println("AP@" + n + ": " + apAtN);
-        System.out.println("/////////////////////////////////////////////////////////////////////////////////////////");
-        System.out.println();
+        writerTxt.println("                  P@" + n + ": " + pAtN);
+        writerTxt.println("                  Recall@" + n + ": " + recallAtN);
+        writerTxt.println("                  RR: " + rr);
+        writerTxt.println("                  AP@" + n + ": " + apAtN);
+
+        //Sumamos las métricas para calcular las métricas globales
+        promPAtN += pAtN;
+        promRecallAtN += recallAtN;
+        mrr += rr;
+        mapAtN += apAtN;
+
     }
 
 
     //Procesar el documento con las queries para extraerlas utilizando el rango especificado
-    private static HashMap<String, String> getQueries(Path path, IndexReader indexReader) throws IOException{
+    private static HashMap<String, String> getQueries(Path path) throws IOException{
 
         ObjectMapper mapper = new ObjectMapper();
         File file = path.toFile();

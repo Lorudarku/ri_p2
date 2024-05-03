@@ -31,8 +31,6 @@ public class TrainingTestTrecCovid {
 
     public static String QUERY_FILE = "src/test/resources/trec-covid/queries.jsonl";
     public static String REL_FILE = "src/test/resources/trec-covid/qrels/test.tsv";
-
-    public static Double[] LambdaValues = {0.001, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
     private static String trainingTestPath = "src/main/resources/trainingTest/";
 
     public static void main(String[] args) throws Exception {
@@ -76,10 +74,6 @@ public class TrainingTestTrecCovid {
             }
         }
 
-        if (!Files.exists(Path.of(indexPath))){
-            System.out.println("Creating index directory " + indexPath);
-            Files.createDirectory(Path.of(indexPath));
-        }
         //comprobamos que el trainingTestPath exista y si no existe lo creamos
         if (!Files.exists(Path.of(trainingTestPath))){
             Files.createDirectory(Path.of(trainingTestPath));
@@ -116,19 +110,24 @@ public class TrainingTestTrecCovid {
         List<RelevantDoc> relevantDocs = parseRelDocsFromFile(REL_FILE, int1, int2);
 
         double bestValue = 0.0;
+        double bestMeanValue = 0.0;
         double[][] trainingValues = new double[queries.size()][values.length];
         double[] meanValues = new double[values.length];
 
         for (int i = 0; i < values.length; i++) {
-            System.out.println("lambda = " + i);
+            System.out.println("lambda = " + values[i]);
             if (jm) searcher.setSimilarity(new LMJelinekMercerSimilarity((lambdaValues[i].floatValue())));
             else searcher.setSimilarity(new BM25Similarity(k1Values[i].floatValue(), b));
 
             double meanMetricvalue;
             meanMetricvalue = calculateStats(queries, relevantDocs, reader, searcher, parser, trainingValues, i, metrica, cut);
+            System.out.println("Meranmetricvalue " + meanMetricvalue);
             meanValues[i] = meanMetricvalue;
 
-            if (meanMetricvalue > bestValue) bestValue = meanMetricvalue;
+            if (meanMetricvalue > bestMeanValue){
+                bestMeanValue = meanMetricvalue;
+                bestValue = values[i];
+            }
         }
         //printMatrix(trainingValues, queries.size(), values.length);
         writeResults(csvTrainingWriter, trainingValues, meanValues, queries, values.length);
@@ -141,7 +140,7 @@ public class TrainingTestTrecCovid {
         IndexSearcher searcherTest = new IndexSearcher(readerTest);
         QueryParser parserTest = new QueryParser("text", analyzer);
 
-        File csvTest = new File("TREC-COVID." + (jm ? "jm" : "bm25") + ".training." + int1 + "-" + int2 + ".test." + int3 + "-" + int4 + "." + metrica.toLowerCase() + cut + ".test.csv");
+        File csvTest = new File(trainingTestPath + "TREC-COVID." + (jm ? "jm" : "bm25") + ".training." + int1 + "-" + int2 + ".test." + int3 + "-" + int4 + "." + metrica.toLowerCase() + cut + ".test.csv");
         FileWriter csvTestWriter = new FileWriter(csvTest);
 
         csvTestWriter.write(String.format("Valor de %s = %f", jm? "lambda":"k1", bestValue) + "\n");
@@ -181,12 +180,14 @@ public class TrainingTestTrecCovid {
 
         double promedio = 0;
         int cont = 0;
+        int queriesNum = 0;
 
         for (MyQuery myQuery: queries){
             Query query = parser.parse(QueryParser.escape(myQuery.getQuery()));
             TopDocs topDocs = searcher.search(query, cut);
+
             //System.out.println(query);
-            System.out.println(topDocs.scoreDocs.length);
+            //System.out.println("Scoredocs recovered" + topDocs.scoreDocs.length);
             //System.out.println("Query" + myQuery.getQqueryID()+ ": " + myQuery.getQuery());
 
             int relevantsForQuery = 0;
@@ -215,6 +216,8 @@ public class TrainingTestTrecCovid {
                 }
             }
 
+            if (relevantsRecovered != 0) queriesNum++;
+
             System.out.println(relevantsRecovered);
             System.out.println(relevantsForQuery);
             switch (metrica){
@@ -235,8 +238,8 @@ public class TrainingTestTrecCovid {
             values[cont][pos] = metricvalue;
             cont++;
         }
-        //System.out.println(promedio / queries.size() + "\n");
-        return promedio;
+
+        return queriesNum == 0? 0: promedio / queriesNum;
     }
 
     private static void printMatrix (double[][] trainingValues, int rows, int columns){
@@ -251,17 +254,15 @@ public class TrainingTestTrecCovid {
     }
     private static void writeResults (FileWriter writer, double[][] values, double[] meanValues, List<MyQuery> queries, int columns) throws IOException {
 
-        writer.write("\n");
         for (int i = 0; i< queries.size(); i++){
             //writer.write("Query " + queries.get(i).getQqueryID());
             for (int j = 0; j<columns; j++){
-                writer.write(String.format("%f", values[i][j]) + "\t");
+                writer.write((values[i][j]) + "\t");
             }
             writer.write("\n");
         }
-        writer.write("\n");
         for (double meanValue : meanValues) {
-            writer.write(String.format("%f", meanValue) + "\t");
+            writer.write(meanValue + "\t");
         }
     }
 
@@ -300,8 +301,8 @@ public class TrainingTestTrecCovid {
         List<RelevantDoc> relevants = new ArrayList<>();
 
         try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
-            String line = br.readLine(); // Ignorar la primera línea del archivo
-
+            String line;
+            br.readLine(); // Saltar la primera línea
             // Iterar sobre cada línea del archivo
             while ((line = br.readLine()) != null) {
                 String[] tokens = line.split("\t");
